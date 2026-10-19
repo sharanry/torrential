@@ -393,7 +393,7 @@ fn a_paused_download_keeps_its_file_progress_across_an_engine_restart() {
     };
     let before = file_bytes(home.ok(&["files", &fixture.short()]));
     assert_eq!(before.iter().sum::<u64>(), paused, "the files hold the verified bytes: {before:?}");
-    assert!(before.iter().all(|b| *b > 0), "both files have pieces: {before:?}");
+    assert!(before[0] > 0 && before[0] >= before[1], "pieces arrive in order, the first file first: {before:?}");
     home.ok(&["daemon", "stop"]);
     let after = file_bytes(home.ok(&["files", &fixture.short()]));
     assert_eq!(after, before, "a new engine that has not loaded the paused download reports the same bytes");

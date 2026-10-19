@@ -335,6 +335,8 @@ AddResult Session::add_torrent(AddParams const& p) {
   atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::duplicate_is_error |
                  lt::torrent_flags::paused | lt::torrent_flags::default_dont_download);
   if (p.paused) atp.flags |= lt::torrent_flags::paused;
+  // Pieces arrive in order, so a file is usable from its start while the rest downloads.
+  atp.flags |= lt::torrent_flags::sequential_download;
 
   atp.file_priorities.clear();
   if (!p.all_files) {
