@@ -24,6 +24,10 @@ pub enum ErrorCode {
     MetadataTimeout,
     NetworkUnavailable,
     FetchFailed,
+    /// The VPN lock is on and its tunnel is down, so nothing is sent.
+    VpnDown,
+    /// The VPN tunnel is up but the provider does not answer through it, as with a revoked key.
+    VpnRejected,
     SandboxNetworkBlocked,
     SandboxWriteBlocked,
     DaemonUnavailable,
@@ -42,7 +46,7 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 25] = [
+    pub const ALL: [ErrorCode; 27] = [
         Self::Usage,
         Self::ConfirmationRequired,
         Self::InvalidRef,
@@ -55,6 +59,8 @@ impl ErrorCode {
         Self::MetadataTimeout,
         Self::NetworkUnavailable,
         Self::FetchFailed,
+        Self::VpnDown,
+        Self::VpnRejected,
         Self::SandboxNetworkBlocked,
         Self::SandboxWriteBlocked,
         Self::DaemonUnavailable,
@@ -77,6 +83,7 @@ impl ErrorCode {
             Self::InvalidRef | Self::InvalidTorrent | Self::NotFound | Self::AmbiguousRef => 3,
             Self::JobConflict | Self::PathConflict => 4,
             Self::ProvidersUnavailable | Self::MetadataTimeout | Self::NetworkUnavailable | Self::FetchFailed => 5,
+            Self::VpnDown | Self::VpnRejected => 5,
             Self::SandboxNetworkBlocked
             | Self::SandboxWriteBlocked
             | Self::DaemonUnavailable
@@ -99,6 +106,7 @@ impl ErrorCode {
                 | Self::MetadataTimeout
                 | Self::NetworkUnavailable
                 | Self::FetchFailed
+                | Self::VpnDown
                 | Self::DaemonUnavailable
                 | Self::Interrupted
         )
@@ -118,6 +126,8 @@ impl ErrorCode {
             Self::MetadataTimeout => "metadata_timeout",
             Self::NetworkUnavailable => "network_unavailable",
             Self::FetchFailed => "fetch_failed",
+            Self::VpnDown => "vpn_down",
+            Self::VpnRejected => "vpn_rejected",
             Self::SandboxNetworkBlocked => "sandbox_network_blocked",
             Self::SandboxWriteBlocked => "sandbox_write_blocked",
             Self::DaemonUnavailable => "daemon_unavailable",

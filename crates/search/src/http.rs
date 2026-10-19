@@ -31,9 +31,10 @@ pub(crate) enum Retry {
 }
 
 impl Http {
-    pub fn new(record: bool) -> Result<Http, reqwest::Error> {
+    pub fn new(record: bool, bind: Option<std::net::IpAddr>) -> Result<Http, reqwest::Error> {
         let client = reqwest::Client::builder()
             .user_agent(USER_AGENT)
+            .local_address(bind)
             .gzip(true)
             .brotli(true)
             .connect_timeout(Duration::from_secs(5))

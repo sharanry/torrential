@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroU32;
 
 /// Everything a session is created with. Settings cannot change after
@@ -9,6 +9,9 @@ pub struct Config {
     /// is not an error: libtorrent tries the next 10 ports, then lets the OS
     /// choose. `Session::listen_port` reports the port it got.
     pub listen: Vec<SocketAddr>,
+    /// Addresses outgoing peer connections bind to. Empty lets the OS choose.
+    /// When none of them is up, peers cannot be reached at all.
+    pub outgoing: Vec<IpAddr>,
     pub dht: Dht,
     /// Local service discovery (BEP 14).
     pub lsd: bool,
@@ -30,6 +33,7 @@ impl Default for Config {
                 SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 6881),
                 SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 6881),
             ],
+            outgoing: Vec::new(),
             dht: Dht::On { bootstrap_nodes: vec!["dht.libtorrent.org:25401".to_owned()] },
             lsd: true,
             upnp: true,

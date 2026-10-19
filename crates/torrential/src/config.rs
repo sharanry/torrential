@@ -12,6 +12,7 @@ use crate::env::Env;
 use crate::paths::Paths;
 use crate::skill::{Writes, write_atomic};
 use crate::update::Policy;
+use crate::vpn::Vpn;
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Config {
@@ -20,6 +21,8 @@ pub struct Config {
     pub file: Option<PathBuf>,
     pub preferences: Preferences,
     pub updates: Policy,
+    /// When set, every connection binds to the tunnel's address, so nothing leaves while it is down.
+    pub vpn: Option<Vpn>,
 }
 
 #[derive(Deserialize, Default)]
@@ -29,6 +32,21 @@ struct File {
     sources: Sources,
     preferences: Option<Overrides>,
     updates: Option<Policy>,
+    vpn: Option<VpnBlock>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VpnBlock {
+    provider: Spanned<String>,
+    address: Spanned<String>,
+    server: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct VpnOnly {
+    vpn: Option<VpnBlock>,
 }
 
 #[derive(Deserialize, Default)]
@@ -88,6 +106,7 @@ impl Config {
             }
         };
         config.search.endpoints = test_endpoints(env)?;
+        config.search.bind = config.vpn.as_ref().map(|vpn| vpn.address);
         Ok(config)
     }
 
@@ -108,7 +127,7 @@ pub fn preferences(paths: &Paths) -> Result<Preferences, Error> {
 pub fn save_preferences(paths: &Paths, preferences: &Preferences, writes: &Writes) -> Result<(PathBuf, bool), Error> {
     save(paths, writes, "preferences block", |text| {
         let edited = if preferences.is_empty() {
-            without_block(text)
+            without_block(text, "preferences")
         } else {
             with_block(text, "preferences", &block(preferences))
         };
@@ -126,6 +145,39 @@ pub fn save_updates(paths: &Paths, policy: Policy, writes: &Writes) -> Result<(P
         let edited = with_block(text, "updates", &format!("updates: {}\n", policy.as_str()));
         (read_updates(&edited).ok() == Some(policy)).then_some(edited)
     })
+}
+
+pub fn save_vpn(paths: &Paths, vpn: Option<&Vpn>, writes: &Writes) -> Result<(PathBuf, bool), Error> {
+    save(paths, writes, "vpn block", |text| {
+        let edited = match vpn {
+            None => without_block(text, "vpn"),
+            Some(vpn) => with_block(
+                text,
+                "vpn",
+                &format!("vpn:\n  provider: surfshark\n  address: {}\n  server: {}\n", vpn.address, vpn.server),
+            ),
+        };
+        (read_vpn(&edited).ok() == Some(vpn.cloned())).then_some(edited)
+    })
+}
+
+fn read_vpn(text: &str) -> Result<Option<Vpn>, Problem> {
+    let file: VpnOnly = serde_saphyr::from_str(text).map_err(|e| problem(&e))?;
+    file.vpn.map(VpnBlock::read).transpose()
+}
+
+impl VpnBlock {
+    fn read(self) -> Result<Vpn, Problem> {
+        if self.provider.value != "surfshark" {
+            let message = format!("vpn.provider {:?} is not supported; use surfshark", self.provider.value);
+            return Err((Some(self.provider.referenced.line()), message));
+        }
+        let Spanned { value, referenced, .. } = self.address;
+        let address = value
+            .parse()
+            .map_err(|_| (Some(referenced.line()), format!("vpn.address {value:?} is not an IP address")))?;
+        Ok(Vpn { address, server: self.server })
+    }
 }
 
 fn save(
@@ -199,9 +251,9 @@ fn block_lines(lines: &[&str], key: &str) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
-fn without_block(text: &str) -> String {
+fn without_block(text: &str, key: &str) -> String {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let Some((start, mut end)) = block_lines(&lines, "preferences") else { return text.to_string() };
+    let Some((start, mut end)) = block_lines(&lines, key) else { return text.to_string() };
     while end < lines.len() && lines[end].trim().is_empty() {
         end += 1;
     }
@@ -303,7 +355,8 @@ fn parse(text: &str, env: &Env) -> Result<Config, Problem> {
         .collect::<Result<_, _>>()?;
     let search = SearchConfig { torznab, disabled: file.sources.disabled, ..SearchConfig::default() };
     let preferences = file.preferences.unwrap_or_default().read()?;
-    Ok(Config { downloads, search, file: None, preferences, updates: file.updates.unwrap_or_default() })
+    let vpn = file.vpn.map(VpnBlock::read).transpose()?;
+    Ok(Config { downloads, search, file: None, preferences, updates: file.updates.unwrap_or_default(), vpn })
 }
 
 fn describe(error: &serde_saphyr::Error) -> String {

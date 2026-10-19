@@ -212,6 +212,7 @@ mod tests {
                 "verify",
                 "setup",
                 "doctor",
+                "vpn",
                 "tui",
                 "daemon",
                 "schema",
@@ -220,7 +221,7 @@ mod tests {
                 "update"
             ]
         );
-        let daemon = &schema()["commands"][12]["subcommands"];
+        let daemon = &schema()["commands"][13]["subcommands"];
         let subs: Vec<&str> = daemon.as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
         assert_eq!(subs, ["status", "stop", "install", "uninstall"]);
     }

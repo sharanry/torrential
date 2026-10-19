@@ -10,6 +10,7 @@ mod paths;
 mod schema;
 mod skill;
 mod update;
+mod vpn;
 mod wire;
 
 use std::io::IsTerminal;

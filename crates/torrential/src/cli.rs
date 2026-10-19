@@ -60,6 +60,15 @@ pub enum Command {
     Setup(SetupArgs),
     /// Diagnose sandbox, disk, state, engine, config, and sources
     Doctor(DoctorArgs),
+    /// Send everything through a Surfshark WireGuard tunnel, or check that it holds
+    #[command(
+        after_help = "Examples:\n  torrential vpn surfshark ~/Downloads/nl-ams.conf\n  torrential vpn\n  torrential vpn off\n\nGet                       a config at https://my.surfshark.com/vpn/manual-setup/main, import it into the WireGuard app, \
+                      and turn it on."
+    )]
+    Vpn {
+        #[command(subcommand)]
+        command: Option<VpnCommand>,
+    },
     /// Open the terminal UI, which `torrential` alone also opens on a terminal
     Tui,
     /// Inspect or manage the engine process
@@ -143,6 +152,19 @@ pub struct SetupArgs {
 
 pub const SETUP_FLAGS: &str = "torrential setup --screen phone|laptop|tv|tv-4k|auto --max-size 8GB|none --playback \
                                hevc-hdr|hevc|h264|auto --updates notify|auto|off";
+
+#[derive(Subcommand, Debug)]
+pub enum VpnCommand {
+    /// Lock torrential to the tunnel in this Surfshark WireGuard config
+    Surfshark {
+        /// The .conf file from Surfshark's manual setup page
+        config: PathBuf,
+    },
+    /// Ask Surfshark, through the tunnel, whether traffic is protected
+    Status,
+    /// Stop locking torrential to the tunnel
+    Off,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Limit(pub Option<u64>);

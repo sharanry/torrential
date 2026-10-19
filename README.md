@@ -108,6 +108,18 @@ downloads:
 
 torrential looks for a new version once a day, says when one is out, and `torrential update` installs it. Set `updates: auto` to install new versions in the background, or `updates: off` to stop looking.
 
+## Behind a VPN
+
+torrential can lock itself to a Surfshark WireGuard tunnel, so nothing leaves while the tunnel is down. On [Surfshark's manual setup page](https://my.surfshark.com/vpn/manual-setup/main), make a WireGuard key, download a config for a P2P location, import it into the WireGuard app, and turn it on. Then:
+
+```sh
+torrential vpn surfshark ~/Downloads/nl-ams.conf   # lock to this tunnel
+torrential vpn                                     # ask Surfshark whether traffic is protected
+torrential vpn off                                 # unlock
+```
+
+Peers, DHT, trackers, and search then leave only from the tunnel's address, with UPnP and NAT-PMP off. If the tunnel drops, downloads wait and resume when it is back. If Surfshark stops answering through it, as with a revoked key, `torrential vpn` links to the page where you make a new one. torrential never stores your key.
+
 ## It never seeds
 
 torrential never uploads a piece, and a download stops as soon as it finishes. Among equally good matches it puts lawful sources such as archive.org and official Linux torrents first, and you should download only what you have the right to.

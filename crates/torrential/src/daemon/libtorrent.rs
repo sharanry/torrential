@@ -22,11 +22,17 @@ const LISTEN_PORT_FILE: &str = "listen.port";
 const DHT_STATE_FILE: &str = "dht.state";
 const STATS_EVERY: Duration = Duration::from_millis(500);
 const SAVE_DHT_EVERY: Duration = Duration::from_secs(15 * 60);
+const TUNNEL_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Network {
     Public,
-    Loopback { peers: Vec<SocketAddr> },
+    /// Public, but only through the VPN tunnel holding this address. libtorrent listens on it and
+    /// binds every outgoing connection to it, so while it is down nothing can leave.
+    Tunnel(IpAddr),
+    Loopback {
+        peers: Vec<SocketAddr>,
+    },
 }
 
 pub struct Libtorrent {
@@ -42,6 +48,13 @@ pub struct Libtorrent {
     mirrors: Mirrors,
     stats_at: Instant,
     dht_saved_at: Instant,
+    tunnel: Option<Tunnel>,
+}
+
+struct Tunnel {
+    address: IpAddr,
+    interface: Option<String>,
+    checked_at: Instant,
 }
 
 type Found = (TorrentId, Result<Vec<String>, Error>);
@@ -95,14 +108,25 @@ impl Libtorrent {
         runtime: tokio::runtime::Handle,
     ) -> Result<Self, Error> {
         let ip = match network {
-            Network::Public => Ipv4Addr::UNSPECIFIED,
+            Network::Public | Network::Tunnel(_) => Ipv4Addr::UNSPECIFIED,
             Network::Loopback { .. } => Ipv4Addr::LOCALHOST,
         };
         let port = listen_port(&state.join(LISTEN_PORT_FILE), ip.into())?;
         let config = config(&network, port);
-        let dht_state = (network == Network::Public).then(|| state.join(DHT_STATE_FILE));
+        let dht_state = matches!(network, Network::Public | Network::Tunnel(_)).then(|| state.join(DHT_STATE_FILE));
+        let tunnel = match network {
+            Network::Tunnel(address) => {
+                let interface = crate::vpn::tunnel(address);
+                super::log(&match &interface {
+                    Some(name) => format!("VPN lock on: sending only through {address} on {name}"),
+                    None => format!("VPN lock on: {address} is down, so nothing is sent until it comes up"),
+                });
+                Some(Tunnel { address, interface, checked_at: Instant::now() })
+            }
+            _ => None,
+        };
         let peers = match network {
-            Network::Public => Vec::new(),
+            Network::Public | Network::Tunnel(_) => Vec::new(),
             Network::Loopback { peers } => peers,
         };
         let saved = dht_state.as_deref().and_then(|p| std::fs::read(p).ok()).map(lt::DhtState::from_bytes);
@@ -127,6 +151,7 @@ impl Libtorrent {
             mirrors: Mirrors { search, runtime, sender, found },
             stats_at: now,
             dht_saved_at: now,
+            tunnel,
         })
     }
 
@@ -532,6 +557,19 @@ impl EnginePort for Libtorrent {
         if self.dht_saved_at.elapsed() >= SAVE_DHT_EVERY {
             self.save_dht_state();
         }
+        if let Some(t) = &mut self.tunnel
+            && t.checked_at.elapsed() >= TUNNEL_EVERY
+        {
+            t.checked_at = Instant::now();
+            let interface = crate::vpn::tunnel(t.address);
+            if interface != t.interface {
+                super::log(&match &interface {
+                    Some(name) => format!("VPN tunnel {} is up on {name}; peers can connect again", t.address),
+                    None => format!("VPN tunnel {} is down; nothing is sent until it comes back", t.address),
+                });
+                t.interface = interface;
+            }
+        }
         std::mem::take(&mut self.events)
     }
 }
@@ -561,6 +599,14 @@ fn config(network: &Network, port: u16) -> lt::Config {
     };
     match network {
         Network::Loopback { .. } => off,
+        // No UPnP, NAT-PMP, or local discovery: they talk to the home network around the tunnel.
+        Network::Tunnel(address) => lt::Config {
+            listen: vec![SocketAddr::new(*address, port)],
+            outgoing: vec![*address],
+            dht: lt::Dht::On { bootstrap_nodes: BOOTSTRAP_NODES.map(String::from).to_vec() },
+            connections: lt::ConnectionLimits::default(),
+            ..off
+        },
         Network::Public => lt::Config {
             listen: vec![
                 SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port),

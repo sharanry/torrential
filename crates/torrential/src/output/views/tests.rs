@@ -654,6 +654,15 @@ fn sample(code: ErrorCode) -> Error {
                     report("apibay", SourceOutcome::Timeout),
                 ]))
         }
+        ErrorCode::VpnDown | ErrorCode::VpnRejected => {
+            let vpn =
+                crate::vpn::Vpn { address: "10.14.0.2".parse().unwrap(), server: "nl-ams.prod.surfshark.com".into() };
+            let state = match code {
+                ErrorCode::VpnDown => crate::vpn::State::Down,
+                _ => crate::vpn::State::Silent { interface: "utun7".into() },
+            };
+            state.error(&vpn).unwrap()
+        }
         ErrorCode::MetadataTimeout => given(
             code,
             "no peer sent the file list for 9b5212 in time",

@@ -207,6 +207,34 @@ hint: try the magnet link instead
   },
   "next": null
 }
+=== vpn_down, exit 5
+error[vpn_down]: the Surfshark tunnel (10.14.0.2) is down, so torrential is not sending anything
+hint: turn on the nl-ams.prod.surfshark.com tunnel in the WireGuard app
+--- json
+{
+  "schema": 1,
+  "type": "error",
+  "error": {
+    "code": "vpn_down",
+    "message": "the Surfshark tunnel (10.14.0.2) is down, so torrential is not sending anything",
+    "hint": "turn on the nl-ams.prod.surfshark.com tunnel in the WireGuard app"
+  },
+  "next": null
+}
+=== vpn_rejected, exit 5
+error[vpn_rejected]: the tunnel is up on utun7, but Surfshark does not answer through it
+hint: your key may have been revoked: make a new one at https://my.surfshark.com/vpn/manual-setup/main, then run torrential vpn surfshark <config>
+--- json
+{
+  "schema": 1,
+  "type": "error",
+  "error": {
+    "code": "vpn_rejected",
+    "message": "the tunnel is up on utun7, but Surfshark does not answer through it",
+    "hint": "your key may have been revoked: make a new one at https://my.surfshark.com/vpn/manual-setup/main, then run torrential vpn surfshark <config>"
+  },
+  "next": null
+}
 === sandbox_network_blocked, exit 6
 error[sandbox_network_blocked]: this sandbox blocks network access, so the engine could not reach any peer
   signal: CODEX_SANDBOX_NETWORK_DISABLED=1 (codex)

@@ -202,6 +202,7 @@ lt::session_params make_params(SessionSettings const& s) {
 
   lt::settings_pack& p = params.settings;
   p.set_str(lt::settings_pack::listen_interfaces, std::string(s.listen_interfaces));
+  p.set_str(lt::settings_pack::outgoing_interfaces, std::string(s.outgoing_interfaces));
   p.set_bool(lt::settings_pack::enable_dht, s.dht);
   p.set_str(lt::settings_pack::dht_bootstrap_nodes, std::string(s.dht_bootstrap_nodes));
   p.set_bool(lt::settings_pack::enable_lsd, s.lsd);

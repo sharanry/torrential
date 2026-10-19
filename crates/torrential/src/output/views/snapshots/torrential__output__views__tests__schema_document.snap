@@ -333,6 +333,39 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
       ]
     },
     {
+      "name": "vpn",
+      "about": "Send everything through a Surfshark WireGuard tunnel, or check that it holds",
+      "arguments": [],
+      "flags": [],
+      "subcommands": [
+        {
+          "name": "surfshark",
+          "about": "Lock torrential to the tunnel in this Surfshark WireGuard config",
+          "arguments": [
+            {
+              "name": "CONFIG",
+              "help": "The .conf file from Surfshark's manual setup page",
+              "required": true,
+              "repeatable": false
+            }
+          ],
+          "flags": []
+        },
+        {
+          "name": "status",
+          "about": "Ask Surfshark, through the tunnel, whether traffic is protected",
+          "arguments": [],
+          "flags": []
+        },
+        {
+          "name": "off",
+          "about": "Stop locking torrential to the tunnel",
+          "arguments": [],
+          "flags": []
+        }
+      ]
+    },
+    {
       "name": "tui",
       "about": "Open the terminal UI, which `torrential` alone also opens on a terminal",
       "arguments": [],
@@ -629,6 +662,16 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
       "code": "fetch_failed",
       "exit": 5,
       "retryable": true
+    },
+    {
+      "code": "vpn_down",
+      "exit": 5,
+      "retryable": true
+    },
+    {
+      "code": "vpn_rejected",
+      "exit": 5,
+      "retryable": false
     },
     {
       "code": "sandbox_network_blocked",

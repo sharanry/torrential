@@ -51,6 +51,9 @@ pub struct SearchConfig {
     pub endpoints: BTreeMap<String, String>,
     /// Sources never searched, by name. A query that names one fails.
     pub disabled: Vec<String>,
+    /// The local address every request leaves from, such as a VPN tunnel's. A request fails
+    /// rather than leave from another address.
+    pub bind: Option<std::net::IpAddr>,
 }
 
 /// A Jackett, Prowlarr, or bitmagnet Torznab endpoint, such as
@@ -290,7 +293,8 @@ impl Search {
 
 impl Inner {
     fn new(config: &SearchConfig, cache: ResultCache, record: bool) -> Result<Inner, Error> {
-        let http = Http::new(record).map_err(|e| Error::internal(format!("cannot build the HTTP client: {e}")))?;
+        let http = Http::new(record, config.bind)
+            .map_err(|e| Error::internal(format!("cannot build the HTTP client: {e}")))?;
         let sources = sources::registry(config)?;
         let disabled = config.disabled.clone();
         Ok(Inner { http, sources, disabled, stores: Stores::new(config.cache_dir.clone()), cache })

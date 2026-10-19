@@ -65,9 +65,10 @@ impl Ports {
                 machine: Detector::start(env, settings.downloads_dir(paths), Box::new(admission::RoomyDisk)),
             });
         }
-        let network = match env.var("TORRENTIAL_TEST_NETWORK") {
-            Some("loopback") => Network::Loopback { peers: test_peers(env)? },
-            _ => Network::Public,
+        let network = match (env.var("TORRENTIAL_TEST_NETWORK"), &settings.vpn) {
+            (Some("loopback"), _) => Network::Loopback { peers: test_peers(env)? },
+            (_, Some(vpn)) => Network::Tunnel(vpn.address),
+            (_, None) => Network::Public,
         };
         let roomy = env.var("TORRENTIAL_TEST_DISK") == Some("roomy");
         let disk = || -> Box<dyn Disk + Sync> {

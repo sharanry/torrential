@@ -5,6 +5,7 @@ pub mod service;
 mod setup;
 pub mod tui;
 mod update;
+mod vpn;
 pub mod wait;
 
 use std::io::Write;
@@ -60,10 +61,12 @@ fn dispatch(command: Command, mode: Mode, env: &Env) -> Result<u8, Error> {
     let engine = || connect::ensure(&paths()?, env);
     match command {
         Command::Search(args) => {
+            vpn::gate(&paths()?, env)?;
             let preferences = crate::config::preferences(&paths()?)?;
             search(engine()?, args, preferences, mode)
         }
         Command::Files(args) => {
+            vpn::gate(&paths()?, env)?;
             let target = Target::parse(&args.reference, &cwd)?;
             let request = Request::Files { target, timeout_ms: METADATA_WAIT.as_millis() as u32 };
             match answer(engine()?.call_within(&request, METADATA_WAIT + Duration::from_secs(15))?)? {
@@ -74,8 +77,12 @@ fn dispatch(command: Command, mode: Mode, env: &Env) -> Result<u8, Error> {
                 other => Err(connect::unexpected(&other)),
             }
         }
-        Command::Get(args) => get(engine()?, args, mode, &cwd, env),
+        Command::Get(args) => {
+            vpn::gate(&paths()?, env)?;
+            get(engine()?, args, mode, &cwd, env)
+        }
         Command::Status(args) => {
+            vpn::warn(&paths()?, env, mode);
             let refs = job_refs(&args.references, &cwd)?;
             let detail = refs.len() == 1;
             match answer(engine()?.call(&Request::Status { refs })?)? {
@@ -87,6 +94,7 @@ fn dispatch(command: Command, mode: Mode, env: &Env) -> Result<u8, Error> {
             }
         }
         Command::Wait(args) => {
+            vpn::warn(&paths()?, env, mode);
             let refs = job_refs(&args.references, &cwd)?;
             let timeout = match (args.timeout, mode) {
                 (Some(t), _) => Some(t),
@@ -103,6 +111,7 @@ fn dispatch(command: Command, mode: Mode, env: &Env) -> Result<u8, Error> {
             changes(engine()?, Request::Pause { refs: job_refs(&args.references, &cwd)? }, ChangeCommand::Pause, mode)
         }
         Command::Resume(args) => {
+            vpn::gate(&paths()?, env)?;
             let request = Request::Resume { refs: job_refs(&args.references, &cwd)?, all: args.all };
             changes(engine()?, request, ChangeCommand::Resume, mode)
         }
@@ -115,6 +124,7 @@ fn dispatch(command: Command, mode: Mode, env: &Env) -> Result<u8, Error> {
         }
         Command::Setup(args) => setup::run(args, mode, env),
         Command::Doctor(args) => Ok(doctor(env, mode, args.network)),
+        Command::Vpn { command } => vpn::run(command, mode, env),
         Command::Tui => tui::run(env),
         Command::Daemon { command } => daemon(command, env, mode),
         Command::Schema => {

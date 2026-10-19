@@ -34,6 +34,7 @@ pub(crate) mod ffi {
 
     struct SessionSettings {
         listen_interfaces: String,
+        outgoing_interfaces: String,
         dht: bool,
         dht_bootstrap_nodes: String,
         lsd: bool,
@@ -336,6 +337,7 @@ pub(crate) fn path_str(path: &Path) -> Result<&str, EngineError> {
 
 pub(crate) fn settings(config: &Config) -> ffi::SessionSettings {
     let listen_interfaces = config.listen.iter().map(SocketAddr::to_string).collect::<Vec<_>>().join(",");
+    let outgoing_interfaces = config.outgoing.iter().map(IpAddr::to_string).collect::<Vec<_>>().join(",");
     let (dht, dht_bootstrap_nodes) = match &config.dht {
         Dht::Off => (false, String::new()),
         Dht::On { bootstrap_nodes } => (true, bootstrap_nodes.join(",")),
@@ -347,6 +349,7 @@ pub(crate) fn settings(config: &Config) -> ffi::SessionSettings {
     };
     ffi::SessionSettings {
         listen_interfaces,
+        outgoing_interfaces,
         dht,
         dht_bootstrap_nodes,
         lsd: config.lsd,
