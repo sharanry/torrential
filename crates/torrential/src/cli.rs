@@ -62,8 +62,9 @@ pub enum Command {
     Doctor(DoctorArgs),
     /// Send everything through a Surfshark WireGuard tunnel, or check that it holds
     #[command(
-        after_help = "Examples:\n  torrential vpn surfshark ~/Downloads/nl-ams.conf\n  torrential vpn\n  torrential vpn off\n\nGet                       a config at https://my.surfshark.com/vpn/manual-setup/main, import it into the WireGuard app, \
-                      and turn it on."
+        after_help = "Examples:\n  torrential vpn surfshark ~/Downloads/nl-ams.conf\n  torrential vpn\n  torrential vpn \
+                      off\n\nGet a config at https://my.surfshark.com/vpn/manual-setup/main, import it into the \
+                      WireGuard app, and turn it on."
     )]
     Vpn {
         #[command(subcommand)]
@@ -157,7 +158,7 @@ pub const SETUP_FLAGS: &str = "torrential setup --screen phone|laptop|tv|tv-4k|a
 pub enum VpnCommand {
     /// Lock torrential to the tunnel in this Surfshark WireGuard config
     Surfshark {
-        /// The .conf file from Surfshark's manual setup page
+        /// The WireGuard .conf file for a P2P location, from https://my.surfshark.com/vpn/manual-setup/main
         config: PathBuf,
     },
     /// Ask Surfshark, through the tunnel, whether traffic is protected

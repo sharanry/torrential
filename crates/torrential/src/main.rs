@@ -81,7 +81,13 @@ fn main() -> ExitCode {
 
 fn usage_error(e: &clap::Error, args: &[String]) -> Error {
     let rendered = e.render().to_string();
-    let message = rendered.lines().next().unwrap_or("invalid arguments").trim_start_matches("error: ").to_string();
+    let mut lines = rendered.lines();
+    let mut message = lines.next().unwrap_or("invalid arguments").trim_start_matches("error: ").to_string();
+    // clap lists missing arguments on the lines after "were not provided:".
+    if message.ends_with(':') {
+        let listed: Vec<&str> = lines.map(str::trim).take_while(|l| !l.is_empty()).collect();
+        message = format!("{message} {}", listed.join(", "));
+    }
     let subcommand = args.iter().skip(1).find(|a| !a.starts_with('-'));
     let known = subcommand.is_some_and(|s| Cli::command().find_subcommand(s).is_some());
     let hint = match subcommand {

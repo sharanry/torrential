@@ -344,7 +344,7 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
           "arguments": [
             {
               "name": "CONFIG",
-              "help": "The .conf file from Surfshark's manual setup page",
+              "help": "The WireGuard .conf file for a P2P location, from https://my.surfshark.com/vpn/manual-setup/main",
               "required": true,
               "repeatable": false
             }
