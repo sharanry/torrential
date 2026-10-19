@@ -180,6 +180,19 @@ impl Sort {
         }
     }
 
+    /// What the heading says, given the direction.
+    pub fn order(self, reversed: bool) -> &'static str {
+        match (self, reversed) {
+            (Self::BestMatch, _) => "best match first",
+            (Self::Seeds, false) => "most seeds first",
+            (Self::Seeds, true) => "fewest seeds first",
+            (Self::Size, false) => "largest first",
+            (Self::Size, true) => "smallest first",
+            (Self::Age, false) => "newest first",
+            (Self::Age, true) => "oldest first",
+        }
+    }
+
     pub fn next(self) -> Self {
         match self {
             Self::BestMatch => Self::Seeds,
@@ -343,6 +356,8 @@ pub struct State {
     pub query: Input,
     pub search: Option<Search>,
     pub sort: Sort,
+    /// Smallest, fewest seeds, or oldest first. Best match has no other direction.
+    pub reversed: bool,
     pub files: HashMap<ReleaseId, Files>,
     pub focus: Focus,
     pub cursor: Option<Item>,
@@ -390,6 +405,7 @@ impl State {
             query: Input::default(),
             search: None,
             sort: Sort::BestMatch,
+            reversed: false,
             files: HashMap::new(),
             focus: Focus::Query,
             cursor: None,
@@ -479,6 +495,9 @@ impl State {
             Sort::Seeds => shown.sort_by_key(|r| std::cmp::Reverse(r.seeders)),
             Sort::Size => shown.sort_by_key(|r| std::cmp::Reverse(r.size)),
             Sort::Age => shown.sort_by_key(|r| std::cmp::Reverse(r.published)),
+        }
+        if self.reversed && self.sort != Sort::BestMatch {
+            shown.reverse();
         }
         shown
     }

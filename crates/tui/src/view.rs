@@ -705,25 +705,56 @@ fn download_detail(buf: &mut Buffer, state: &State, job: &Job, g: &Grid, (y, vie
     }
 }
 
+/// The column names results sort by, with where each ends. The sorted one carries an arrow.
+fn sortable(state: &State, c: &Columns) -> Vec<(Sort, String, u16)> {
+    let label = |sort: Sort, word: &str| match (state.sort == sort, state.reversed) {
+        (true, false) => format!("{word}↓"),
+        (true, true) => format!("{word}↑"),
+        (false, _) => word.to_string(),
+    };
+    [(Sort::Size, "size", Some(c.size)), (Sort::Seeds, "seeds", c.seeds), (Sort::Age, "age", c.age)]
+        .into_iter()
+        .filter_map(|(sort, word, x)| x.map(|x| (sort, label(sort, word), x)))
+        .collect()
+}
+
 fn heads(buf: &mut Buffer, state: &State, c: &Columns, y: u16) {
     margin(buf, c.at, y, "found", fg(PENCIL));
-    let room = c.size - "size".len() as u16 - 2 - c.at.content;
+    let columns = sortable(state, c);
+    let room = c.size - width(&columns[0].1) as u16 - 2 - c.at.content;
     let ranked_for = state.search.as_ref().and_then(|s| s.ranked_for.as_ref());
     let ranked = ranked_for.and_then(|r| first_fit(ranked_lines(r), usize::from(room) - "ranked for ".len()));
     let order = match (state.sort, ranked) {
         (Sort::BestMatch, Some(ranked)) => format!("ranked for {ranked}"),
-        (Sort::BestMatch, None) => "best match first".into(),
-        (Sort::Seeds, _) => "most seeds first".into(),
-        (Sort::Size, _) => "largest first".into(),
-        (Sort::Age, _) => "newest first".into(),
+        (sort, _) => sort.order(state.reversed).into(),
     };
     put(buf, c.at.content, y, room, &order, fg(PENCIL));
-    put_right(buf, c.size, y, "size", fg(PENCIL));
-    if let Some(x) = c.seeds {
-        put_right(buf, x, y, "seeds", fg(PENCIL));
+    for (sort, text, x) in columns {
+        let style = if state.sort == sort { fg(INK) } else { fg(PENCIL) };
+        put_right(buf, x, y, &text, style);
     }
-    if let Some(x) = c.age {
-        put_right(buf, x, y, "age", fg(PENCIL));
+}
+
+/// The sort a click at screen cell (`x`, `y`) asks for: a column name in the results' heading,
+/// or the order text before them for best match.
+pub fn sort_at(state: &State, x: u16, y: u16) -> Option<Sort> {
+    let screen = layout::screen(state.size)?;
+    let area = screen.list;
+    if state.help || state.vpn_panel.is_some() || state.ranking.is_some() || !(area.y..area.bottom()).contains(&y) {
+        return None;
+    }
+    let placed = layout::blocks(state, area.height);
+    let total = layout::total(&placed).max(area.height);
+    let row = y - area.y + state.scroll.min(total - area.height);
+    placed.iter().find(|p| matches!(p.block, Block::Heads) && p.top == row)?;
+    let c = result_columns(&screen, state.results().iter().any(|r| quality_word(r.quality()).is_some()));
+    let hit = sortable(state, &c)
+        .into_iter()
+        .find(|(_, text, right)| (right.saturating_sub(width(text) as u16)..*right).contains(&x));
+    match hit {
+        Some((sort, _, _)) => Some(sort),
+        None if (c.at.content..c.flag.unwrap_or(c.names)).contains(&x) => Some(Sort::BestMatch),
+        None => None,
     }
 }
 
@@ -968,7 +999,16 @@ fn empty(buf: &mut Buffer, state: &State, screen: &Screen, y: u16) {
 const HELP: [(&str, &[(&str, &str)]); 7] = [
     ("move", &[("j k", "up, down"), ("g G", "first, last"), ("pgup pgdn", "a page"), ("d r", "downloads, results")]),
     ("typing", &[("/", "search"), ("enter", "search again"), ("ctrl+u", "clear"), ("tab", "into the list")]),
-    ("results", &[("enter", "files"), ("D", "download"), ("s", "sort"), ("h l", "close, open")]),
+    (
+        "results",
+        &[
+            ("enter", "files"),
+            ("D", "download"),
+            ("s R", "sort, reverse"),
+            ("click", "sort by column"),
+            ("h l", "close, open"),
+        ],
+    ),
     ("files", &[("space", "pick"), ("a", "all or none"), ("h l", "fold folders"), ("enter", "download")]),
     (
         "download",

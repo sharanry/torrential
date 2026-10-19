@@ -782,3 +782,28 @@ fn a_frame_drawn_before_the_resize_message_arrives_still_fits() {
     view::render(&mut tiny, &state, ColorMode::TrueColor);
     assert_eq!(find(&buf, "torrential"), (1, 0));
 }
+
+#[test]
+fn clicking_a_column_name_sorts_by_it_and_again_reverses() {
+    use crate::state::Sort;
+    let mut state = searched((100, 30));
+    let (x, y) = find(&render(&state), "seeds");
+    state.update(Msg::Click { x, y });
+    assert_eq!((state.sort, state.reversed), (Sort::Seeds, false));
+    let seeds: Vec<_> = state.results().iter().map(|r| r.seeders).collect();
+    assert!(seeds.windows(2).all(|w| w[0] >= w[1]), "{seeds:?}");
+
+    let (x, y) = find(&render(&state), "seeds↓");
+    state.update(Msg::Click { x, y });
+    assert_eq!((state.sort, state.reversed), (Sort::Seeds, true));
+    find(&render(&state), "fewest seeds first");
+
+    state.update(Msg::Click { x: 0, y: 0 });
+    assert_eq!((state.sort, state.reversed), (Sort::Seeds, true), "a click elsewhere changes nothing");
+    let (x, y) = find(&render(&state), "fewest seeds first");
+    state.update(Msg::Click { x, y });
+    assert_eq!(state.sort, Sort::BestMatch, "the order text goes back to best match");
+    press(&mut state, "s");
+    press(&mut state, "R");
+    assert_eq!((state.sort, state.reversed), (Sort::Seeds, true));
+}

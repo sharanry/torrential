@@ -11,11 +11,11 @@ use torrential_core::{
 use crate::backend::VpnStatus;
 use crate::format::{first_fit, home_path};
 use crate::layout;
-use crate::state::VpnPanel;
 use crate::state::{
     DownloadFiles, Edit, Engine, Files, Focus, Input, Item, JobAction, RankedFor, Ranking, Search, SearchPhase, State,
     Tone, Upgrade,
 };
+use crate::state::{Sort, VpnPanel};
 use crate::tree::Tree;
 
 /// Two presses of Esc within this open the keys.
@@ -25,18 +25,43 @@ const DOUBLE_ESC: std::time::Duration = std::time::Duration::from_millis(300);
 pub enum Msg {
     Key(KeyEvent),
     Resize(u16, u16),
+    /// A left click, in screen cells.
+    Click {
+        x: u16,
+        y: u16,
+    },
     Tick,
     Watch(Event),
     WatchLost(Error),
     FreeSpace(Option<u64>),
-    SearchUpdate { search: u64, result: SearchResult, pending: Vec<String> },
-    SearchDone { search: u64, result: Result<SearchResult, Error> },
-    Files { item: Item, result: Result<FilesReply, Error> },
-    Started { release: ReleaseId, result: Result<Box<GetReply>, Error> },
-    Changed { id: TorrentId, action: JobAction, result: Result<Vec<Change>, Error> },
+    SearchUpdate {
+        search: u64,
+        result: SearchResult,
+        pending: Vec<String>,
+    },
+    SearchDone {
+        search: u64,
+        result: Result<SearchResult, Error>,
+    },
+    Files {
+        item: Item,
+        result: Result<FilesReply, Error>,
+    },
+    Started {
+        release: ReleaseId,
+        result: Result<Box<GetReply>, Error>,
+    },
+    Changed {
+        id: TorrentId,
+        action: JobAction,
+        result: Result<Vec<Change>, Error>,
+    },
     Preferences(Preferences),
     Machine(Machine),
-    Saved { edit: Edit, result: Result<Preferences, Error> },
+    Saved {
+        edit: Edit,
+        result: Result<Preferences, Error>,
+    },
     NewerVersion(String),
     Vpn(Option<crate::backend::Vpn>),
     VpnLocations(Result<Vec<crate::backend::VpnLocation>, Error>),
@@ -84,6 +109,7 @@ pub enum Action {
     PickAll,
     Ranking,
     Vpn,
+    Reverse,
     Upgrade,
 }
 
@@ -115,6 +141,13 @@ impl State {
         let mut effects = self.prefetch_due();
         effects.extend(match msg {
             Msg::Key(key) => self.key(key),
+            Msg::Click { x, y } => {
+                if let Some(sort) = crate::view::sort_at(self, x, y) {
+                    let reversed = sort == self.sort && sort != Sort::BestMatch && !self.reversed;
+                    self.sort_by(sort, reversed);
+                }
+                Vec::new()
+            }
             Msg::Resize(w, h) => {
                 self.size = (w, h);
                 Vec::new()
@@ -344,6 +377,7 @@ impl State {
             Char('a') if picking => Action::PickAll,
             Char('D') => Action::Download,
             Char('s') => Action::Sort,
+            Char('R') => Action::Reverse,
             Char('S') => Action::Ranking,
             Char('V') => Action::Vpn,
             Char('U') => Action::Upgrade,
@@ -384,10 +418,9 @@ impl State {
                     return self.download(id);
                 }
             }
-            Action::Sort => {
-                self.sort = self.sort.next();
-                self.say(Tone::Info, format!("Sorted by {}", self.sort.label()));
-            }
+            Action::Sort => self.sort_by(self.sort.next(), false),
+            Action::Reverse if self.sort != Sort::BestMatch => self.sort_by(self.sort, !self.reversed),
+            Action::Reverse => self.say(Tone::Info, "Best match has one order; press s to sort by something else."),
             Action::TogglePause => {
                 if let Some(job) = self.selected_job() {
                     let action = match job.status {
@@ -476,6 +509,13 @@ impl State {
     }
 
     /// Letters search the list, so the panel moves with the arrow keys only.
+    fn sort_by(&mut self, sort: Sort, reversed: bool) {
+        self.sort = sort;
+        self.reversed = reversed;
+        let reversed = if reversed { ", reversed" } else { "" };
+        self.say(Tone::Info, format!("Sorted by {}{reversed}", sort.label()));
+    }
+
     fn vpn_key(&mut self, key: KeyEvent) -> Vec<Effect> {
         use KeyCode::*;
         let Some(mut panel) = self.vpn_panel.take() else { return Vec::new() };
@@ -890,6 +930,7 @@ impl State {
         self.query = Input { caret: text.chars().count(), text: text.clone() };
         self.files.clear();
         self.sort = crate::state::Sort::BestMatch;
+        self.reversed = false;
         self.focus = Focus::List;
         self.follow_top = true;
         if matches!(self.cursor, Some(Item::Result(_))) {

@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crossterm::event::Event as TermEvent;
+use crossterm::event::{Event as TermEvent, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use torrential_core::protocol::Event;
 use torrential_core::{Error, ErrorCode};
 
@@ -33,7 +33,10 @@ const VPN_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 pub fn run(backend: impl Backend) -> io::Result<Exit> {
     let mode = ColorMode::detect(|key| std::env::var(key).ok());
     let mut terminal = ratatui::try_init()?;
+    // Clicks sort the results by a column. Most terminals still select text with shift or option held.
+    let _ = crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture);
     let result = session(&mut terminal, Arc::new(backend), mode);
+    let _ = crossterm::execute!(io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
     let state = result?;
     if state.upgrade == Some(Upgrade::Installed) {
@@ -158,6 +161,12 @@ fn listen(tx: Sender<Msg>) {
             let msg = match crossterm::event::read() {
                 Ok(TermEvent::Key(key)) => Msg::Key(key),
                 Ok(TermEvent::Resize(w, h)) => Msg::Resize(w, h),
+                Ok(TermEvent::Mouse(mouse)) => match mouse.kind {
+                    MouseEventKind::Down(MouseButton::Left) => Msg::Click { x: mouse.column, y: mouse.row },
+                    MouseEventKind::ScrollDown => Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                    MouseEventKind::ScrollUp => Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+                    _ => continue,
+                },
                 Ok(_) => continue,
                 Err(_) => return,
             };
