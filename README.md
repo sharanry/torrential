@@ -110,15 +110,18 @@ torrential looks for a new version once a day, says when one is out, and `torren
 
 ## Behind a VPN
 
-torrential can lock itself to a Surfshark WireGuard tunnel, so nothing leaves while the tunnel is down. On [Surfshark's manual setup page](https://my.surfshark.com/vpn/manual-setup/main), make a WireGuard key, download a config for a P2P location, import it into the WireGuard app, and turn it on. Then:
+torrential can lock itself to a Surfshark WireGuard tunnel, so nothing leaves while the tunnel is down.
 
 ```sh
-torrential vpn surfshark ~/Downloads/nl-ams.conf   # lock to this tunnel
-torrential vpn                                     # ask Surfshark whether traffic is protected
-torrential vpn off                                 # unlock
+torrential vpn surfshark                        # write a config for the least loaded P2P server near you
+torrential vpn surfshark --location manchester  # or pick where to connect
+torrential vpn                                  # ask Surfshark whether traffic is protected
+torrential vpn off                              # unlock
 ```
 
-Peers, DHT, trackers, and search then leave only from the tunnel's address, with UPnP and NAT-PMP off. If the tunnel drops, downloads wait and resume when it is back. If Surfshark stops answering through it, as with a revoked key, `torrential vpn` links to the page where you make a new one. torrential never stores your key.
+The first time, make a WireGuard key pair on [Surfshark's manual setup page](https://my.surfshark.com/vpn/manual-setup/main) and paste the private key when asked. torrential keeps it in the macOS Keychain, or the Secret Service on Linux, and never asks again. Import the config it writes into the WireGuard app and turn it on. You can also pass a `.conf` file you downloaded yourself.
+
+Peers, DHT, trackers, and search then leave only from the tunnel's address, with UPnP and NAT-PMP off. If the tunnel drops, downloads wait and resume when it is back. If Surfshark stops answering through it, as with a revoked key, `torrential vpn` links to the page where you make a new one.
 
 ## It never seeds
 

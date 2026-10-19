@@ -340,16 +340,24 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
       "subcommands": [
         {
           "name": "surfshark",
-          "about": "Lock torrential to the tunnel in this Surfshark WireGuard config",
+          "about": "Lock torrential to a Surfshark WireGuard tunnel, writing its config unless you give one",
           "arguments": [
             {
               "name": "CONFIG",
-              "help": "The WireGuard .conf file for a P2P location, from https://my.surfshark.com/vpn/manual-setup/main",
-              "required": true,
+              "help": "A WireGuard .conf file from https://my.surfshark.com/vpn/manual-setup/main. Without one, torrential writes a config for a P2P server from your saved key",
+              "required": false,
               "repeatable": false
             }
           ],
-          "flags": []
+          "flags": [
+            {
+              "name": "--location",
+              "help": "Where to connect: a location, country, country code, or server such as uk-man. Defaults to the least loaded P2P server in your country",
+              "takes_value": true,
+              "repeatable": false,
+              "value_name": "LOCATION"
+            }
+          ]
         },
         {
           "name": "status",

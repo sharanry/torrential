@@ -62,9 +62,10 @@ pub enum Command {
     Doctor(DoctorArgs),
     /// Send everything through a Surfshark WireGuard tunnel, or check that it holds
     #[command(
-        after_help = "Examples:\n  torrential vpn surfshark ~/Downloads/nl-ams.conf\n  torrential vpn\n  torrential vpn \
-                      off\n\nGet a config at https://my.surfshark.com/vpn/manual-setup/main, import it into the \
-                      WireGuard app, and turn it on."
+        after_help = "Examples:\n  torrential vpn surfshark\n  torrential vpn surfshark --location manchester\n  \
+                      torrential vpn surfshark ~/Downloads/uk-man.conf\n  torrential vpn\n  torrential vpn off\n\nThe \
+                      first time, make a WireGuard key pair at https://my.surfshark.com/vpn/manual-setup/main and \
+                      paste the private key when asked. It is kept in the Keychain."
     )]
     Vpn {
         #[command(subcommand)]
@@ -156,10 +157,15 @@ pub const SETUP_FLAGS: &str = "torrential setup --screen phone|laptop|tv|tv-4k|a
 
 #[derive(Subcommand, Debug)]
 pub enum VpnCommand {
-    /// Lock torrential to the tunnel in this Surfshark WireGuard config
+    /// Lock torrential to a Surfshark WireGuard tunnel, writing its config unless you give one
     Surfshark {
-        /// The WireGuard .conf file for a P2P location, from https://my.surfshark.com/vpn/manual-setup/main
-        config: PathBuf,
+        /// A WireGuard .conf file from https://my.surfshark.com/vpn/manual-setup/main. Without one,
+        /// torrential writes a config for a P2P server from your saved key
+        config: Option<PathBuf>,
+        /// Where to connect: a location, country, country code, or server such as uk-man. Defaults to
+        /// the least loaded P2P server in your country
+        #[arg(long, conflicts_with = "config")]
+        location: Option<String>,
     },
     /// Ask Surfshark, through the tunnel, whether traffic is protected
     Status,

@@ -1,3 +1,7 @@
+use std::io::{BufRead, IsTerminal, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
+
 use serde::Serialize;
 use torrential_core::{Error, ErrorCode};
 
@@ -19,6 +23,8 @@ struct Report {
     location: Option<String>,
     /// `secured`, `down`, `silent`, or `unsecured`.
     tunnel: &'static str,
+    /// The WireGuard config torrential wrote, to import into the WireGuard app.
+    config: Option<String>,
     interface: Option<String>,
     exit_ip: Option<String>,
 }
@@ -29,21 +35,47 @@ pub fn run(command: Option<VpnCommand>, mode: Mode, env: &Env) -> Result<u8, Err
     match command.unwrap_or(VpnCommand::Status) {
         VpnCommand::Status => {
             let Some(vpn) = Config::load(&paths, env)?.vpn else {
-                return Err(Error::new(ErrorCode::Usage, "the VPN lock is off").with_hint(format!(
-                    "download a WireGuard config from {MANUAL_SETUP}, then run torrential vpn surfshark <config>"
-                )));
+                return Err(
+                    Error::new(ErrorCode::Usage, "the VPN lock is off").with_hint("run torrential vpn surfshark")
+                );
             };
             let state = runtime.block_on(vpn::check(&vpn));
             if let Some(error) = state.error(&vpn) {
                 return Err(error);
             }
-            Ok(report(mode, "checked", &vpn, None, &state))
+            Ok(report(mode, "checked", &vpn, None, None, &state))
         }
-        VpnCommand::Surfshark { config: file } => {
-            let text = std::fs::read_to_string(&file)
-                .map_err(|e| Error::new(ErrorCode::Usage, format!("cannot read {}: {e}", file.display())))?;
-            let wireguard = WireGuard::parse(&text)?;
+        VpnCommand::Surfshark { config: file, location } => {
             let servers = runtime.block_on(vpn::servers())?;
+            let writes = Writes::new(env, "torrential vpn surfshark".to_string());
+            let (wireguard, written) = match &file {
+                Some(file) => {
+                    let text = std::fs::read_to_string(file)
+                        .map_err(|e| Error::new(ErrorCode::Usage, format!("cannot read {}: {e}", file.display())))?;
+                    let wireguard = WireGuard::parse(&text)?;
+                    // Kept so later runs can write configs for other servers without a file.
+                    if let Some(key) = wireguard.private_key.as_deref().filter(|k| vpn::valid_key(k)) {
+                        vpn::save_key(key)?;
+                    }
+                    (wireguard, None)
+                }
+                None => {
+                    let country = runtime.block_on(vpn::country());
+                    let server = vpn::choose(&servers, location.as_deref(), country.as_deref())?;
+                    let key = match vpn::saved_key() {
+                        Some(key) => key,
+                        None => {
+                            let key = ask_key()?;
+                            vpn::save_key(&key)?;
+                            key
+                        }
+                    };
+                    let (wireguard, text) = WireGuard::render(server, &key)?;
+                    let path = paths.config.join("surfshark").join(format!("{}.conf", server.connection_name));
+                    write_private(&path, &text).map_err(|e| writes.error(&path, e))?;
+                    (wireguard, Some(path))
+                }
+            };
             let server = servers
                 .iter()
                 .find(|s| s.connection_name == wireguard.server || s.pub_key.as_deref() == Some(&wireguard.server_key));
@@ -52,7 +84,7 @@ pub fn run(command: Option<VpnCommand>, mode: Mode, env: &Env) -> Result<u8, Err
                     ErrorCode::Usage,
                     format!("{} is not one of Surfshark's servers", wireguard.server),
                 )
-                .with_hint(format!("download a WireGuard config from {MANUAL_SETUP}")));
+                .with_hint("run torrential vpn surfshark without a file to have torrential write a config"));
             };
             if !server.p2p() {
                 let mut nearby: Vec<_> = servers
@@ -67,18 +99,14 @@ pub fn run(command: Option<VpnCommand>, mode: Mode, env: &Env) -> Result<u8, Err
                     ErrorCode::Usage,
                     format!("Surfshark does not allow torrents on {}, {}", server.location, server.country),
                 )
-                .with_hint(format!(
-                    "download a config for a P2P location such as {} from {MANUAL_SETUP}",
-                    nearby.join(", ")
-                )));
+                .with_hint(format!("run torrential vpn surfshark --location {}", nearby[0].to_lowercase())));
             }
             let vpn = Vpn { address: wireguard.address, server: wireguard.server.clone() };
-            let writes = Writes::new(env, format!("torrential vpn surfshark {}", file.display()));
             config::save_vpn(&paths, Some(&vpn), &writes)?;
             restart_engine(&paths, env)?;
             let state = runtime.block_on(vpn::check(&vpn));
             let location = format!("{}, {}", server.location, server.country);
-            Ok(report(mode, "locked", &vpn, Some(location), &state))
+            Ok(report(mode, "locked", &vpn, Some(location), written.as_deref(), &state))
         }
         VpnCommand::Off => {
             let writes = Writes::new(env, "torrential vpn off".to_string());
@@ -113,7 +141,14 @@ fn restart_engine(paths: &Paths, env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
-fn report(mode: Mode, result: &'static str, vpn: &Vpn, location: Option<String>, state: &State) -> u8 {
+fn report(
+    mode: Mode,
+    result: &'static str,
+    vpn: &Vpn,
+    location: Option<String>,
+    written: Option<&Path>,
+    state: &State,
+) -> u8 {
     let (tunnel, interface, exit_ip, country) = match state {
         State::Secured { interface, ip, country } => ("secured", Some(interface), Some(ip), Some(country)),
         State::Down => ("down", None, None, None),
@@ -122,6 +157,9 @@ fn report(mode: Mode, result: &'static str, vpn: &Vpn, location: Option<String>,
     };
     let mut fields = vec![("server", Cell::new(location.clone().unwrap_or_else(|| vpn.server.clone())))];
     fields.push(("address", Cell::new(vpn.address.to_string())));
+    if let Some(path) = written {
+        fields.push(("config", Cell::new(path.display().to_string())));
+    }
     let token = if tunnel == "secured" { Token::Mint } else { Token::Error };
     fields.push(("tunnel", Cell::styled(interface.map_or(tunnel.to_string(), |i| format!("{tunnel} on {i}")), token)));
     if let Some(ip) = exit_ip {
@@ -129,12 +167,19 @@ fn report(mode: Mode, result: &'static str, vpn: &Vpn, location: Option<String>,
         fields.push(("exit", Cell::new(format!("{ip}{place}"))));
     }
     let mut summary = vec!["peers, DHT, trackers, and search leave only from the tunnel's address".to_string()];
-    let next = match state.error(vpn) {
-        Some(error) => {
+    let next = match (state.error(vpn), written) {
+        (Some(_), Some(path)) if *state == State::Down => {
+            summary.push("the tunnel is not up yet, so nothing is sent".to_string());
+            Some(format!(
+                "in the WireGuard app, choose Import Tunnel(s) from File, pick {}, turn it on, then run torrential vpn",
+                path.display()
+            ))
+        }
+        (Some(error), _) => {
             summary.push(error.message);
             error.hint
         }
-        None => Some("torrential search <words>".to_string()),
+        (None, _) => Some("torrential search <words>".to_string()),
     };
     let doc = Doc { body: Body::Fields { title: vec![Cell::styled(result, Token::Mint)], fields }, summary, next };
     let body = Report {
@@ -144,10 +189,73 @@ fn report(mode: Mode, result: &'static str, vpn: &Vpn, location: Option<String>,
         server: vpn.server.clone(),
         location,
         tunnel,
+        config: written.map(|p| p.display().to_string()),
         interface: interface.cloned(),
         exit_ip: exit_ip.cloned(),
     };
     super::emit(mode, &doc, &Typed { kind: "vpn", body })
+}
+
+/// Reads the private key without echoing it on a terminal, or as one line of piped input.
+fn ask_key() -> Result<String, Error> {
+    let stdin = std::io::stdin();
+    let terminal = stdin.is_terminal();
+    if terminal {
+        eprintln!("torrential needs your Surfshark WireGuard private key, once. To get one:");
+        eprintln!("  1. open {MANUAL_SETUP}");
+        eprintln!("  2. choose WireGuard, then Generate a new key pair, and copy the private key");
+        eprint!("Private key (hidden): ");
+        let _ = std::io::stderr().flush();
+    }
+    let echo = terminal.then(Echo::off).flatten();
+    let mut line = String::new();
+    let read = stdin.lock().read_line(&mut line);
+    drop(echo);
+    if terminal {
+        eprintln!();
+    }
+    read.map_err(|e| Error::new(ErrorCode::Usage, format!("cannot read the key: {e}")))?;
+    let key = line.trim().to_string();
+    if !vpn::valid_key(&key) {
+        return Err(Error::new(ErrorCode::Usage, "that is not a WireGuard private key")
+            .with_hint(format!("copy the private key (44 characters ending in =) from {MANUAL_SETUP}")));
+    }
+    Ok(key)
+}
+
+/// Turns terminal echo off until dropped.
+struct Echo(libc::termios);
+
+impl Echo {
+    fn off() -> Option<Echo> {
+        // SAFETY: tcgetattr fills a plain struct for stdin, which is checked to be a terminal.
+        unsafe {
+            let mut saved = std::mem::zeroed::<libc::termios>();
+            if libc::tcgetattr(libc::STDIN_FILENO, &mut saved) != 0 {
+                return None;
+            }
+            let mut quiet = saved;
+            quiet.c_lflag &= !libc::ECHO;
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &quiet);
+            Some(Echo(saved))
+        }
+    }
+}
+
+impl Drop for Echo {
+    fn drop(&mut self) {
+        // SAFETY: restores the settings read in `off`.
+        unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.0) };
+    }
+}
+
+/// The config holds the private key, so only this user can read it.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    file.write_all(text.as_bytes())
 }
 
 /// Refuses network work while the lock's tunnel is down. The engine could not send it anyway; this
