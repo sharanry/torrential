@@ -163,6 +163,47 @@ impl torrential_tui::Backend for EngineBackend {
         update::available(&self.paths, &self.env).map(|latest| latest.to_string())
     }
 
+    fn vpn(&self) -> Option<torrential_tui::Vpn> {
+        use crate::vpn::State;
+        use torrential_tui::VpnStatus;
+        let vpn = crate::config::Config::load(&self.paths, &self.env).ok()?.vpn?;
+        let state = crate::update::runtime().ok()?.block_on(crate::vpn::check(&vpn));
+        let status = match state {
+            State::Secured { country, country_code, .. } => VpnStatus::Secured { country, code: country_code },
+            State::Down => VpnStatus::Down,
+            State::Silent { .. } => VpnStatus::Rejected,
+            State::Unsecured { .. } => VpnStatus::Unsecured,
+        };
+        Some(torrential_tui::Vpn { provider: "Surfshark".into(), status })
+    }
+
+    fn vpn_locations(&self) -> Result<Vec<torrential_tui::VpnLocation>, Error> {
+        let servers = crate::update::runtime()?.block_on(crate::vpn::servers())?;
+        let current = crate::config::Config::load(&self.paths, &self.env)?.vpn.map(|v| v.server);
+        let mut list: Vec<_> = servers
+            .into_iter()
+            .filter(crate::vpn::Server::p2p)
+            .map(|s| torrential_tui::VpnLocation {
+                name: super::vpn::short(&s.connection_name).to_string(),
+                current: current.as_deref() == Some(s.connection_name.as_str()),
+                city: s.location,
+                country: s.country,
+                load: s.load,
+            })
+            .collect();
+        list.sort_by(|a, b| (&a.country, &a.city).cmp(&(&b.country, &b.city)));
+        Ok(list)
+    }
+
+    fn vpn_switch(&self, location: &str) -> Result<String, Error> {
+        let elevate = Some(super::vpn::Elevate::Dialog);
+        super::vpn::lock(&self.paths, &self.env, None, Some(location), elevate, false).map(|l| l.location)
+    }
+
+    fn vpn_tunnel(&self, up: bool) -> Result<(), Error> {
+        super::vpn::set_tunnel(&self.paths, &self.env, up, super::vpn::Elevate::Dialog)
+    }
+
     fn upgrade(&self) -> Result<Option<String>, Error> {
         let releases = Releases::required(&self.env)?;
         let install = update::install(&releases, &self.paths, &self.env, crate::daemon::owner::now());

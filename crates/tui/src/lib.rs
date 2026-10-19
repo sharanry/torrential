@@ -11,6 +11,6 @@ mod view;
 #[cfg(test)]
 mod tests;
 
-pub use backend::Backend;
+pub use backend::{Backend, Vpn, VpnLocation, VpnStatus};
 pub use runtime::{Exit, run};
 pub use state::Edit;

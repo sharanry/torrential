@@ -166,12 +166,16 @@ fn the_esc_ladder_closes_help_then_leaves_the_tree_then_returns_to_the_query() {
     state.update(Msg::Files { item: Item::Result(result_id("b7f20d")), result: Ok(dvd_files()) });
     press(&mut state, "?");
     assert_eq!((state.help, state.focus), (true, Focus::Files));
+    later(&mut state, 500);
     state.update(key(KeyCode::Esc));
     assert_eq!((state.help, state.focus), (false, Focus::Files));
+    later(&mut state, 500);
     state.update(key(KeyCode::Esc));
     assert_eq!(state.focus, Focus::List);
+    later(&mut state, 500);
     state.update(key(KeyCode::Esc));
     assert_eq!(state.focus, Focus::Query);
+    later(&mut state, 500);
     state.update(key(KeyCode::Esc));
     assert_eq!((state.focus, cursor_name(&state)), (Focus::List, "Night of the Living Dead (1968) [DVD]".into()));
 }
@@ -470,4 +474,56 @@ fn typing_u_in_the_search_box_types_it() {
     let mut state = app((100, 30));
     state.update(Msg::NewerVersion("0.1.1".into()));
     assert_eq!((press(&mut state, "U"), state.query.text.as_str()), (vec![], "U"));
+}
+
+fn locations() -> Vec<crate::backend::VpnLocation> {
+    let at = |name: &str, city: &str, country: &str, current: bool| crate::backend::VpnLocation {
+        name: name.into(),
+        city: city.into(),
+        country: country.into(),
+        load: 20,
+        current,
+    };
+    vec![
+        at("de-fra", "Frankfurt", "Germany", false),
+        at("uk-gla", "Glasgow", "United Kingdom", true),
+        at("uk-man", "Manchester", "United Kingdom", false),
+        at("us-dal", "Dallas", "United States", false),
+    ]
+}
+
+#[test]
+fn esc_twice_quickly_opens_the_keys() {
+    let mut state = with_downloads((100, 30));
+    state.update(key(KeyCode::Esc));
+    assert!(!state.help);
+    later(&mut state, 600);
+    state.update(key(KeyCode::Esc));
+    assert!(!state.help, "a slow second press is just esc");
+    later(&mut state, 200);
+    state.update(key(KeyCode::Esc));
+    assert!(state.help);
+}
+
+#[test]
+fn the_vpn_panel_searches_switches_and_toggles() {
+    let mut state = with_downloads((100, 30));
+    assert_eq!(press(&mut state, "V"), [Effect::VpnLocations]);
+    state.update(Msg::VpnLocations(Ok(locations())));
+    assert_eq!(state.vpn_panel.as_ref().unwrap().row, 1, "starts on the current location");
+
+    press(&mut state, "united k");
+    let names: Vec<String> = state.vpn_panel.as_ref().unwrap().visible().iter().map(|l| l.name.clone()).collect();
+    assert_eq!(names, ["uk-gla", "uk-man"]);
+    state.update(key(KeyCode::Down));
+    assert_eq!(state.update(key(KeyCode::Enter)), [Effect::VpnSwitch("uk-man".into())]);
+    assert_eq!(state.update(key(KeyCode::Enter)), [], "one switch at a time");
+    assert_eq!(state.update(Msg::VpnDone(Ok("VPN connected to Manchester".into()))), [Effect::VpnLocations]);
+
+    state.update(key(KeyCode::Esc));
+    assert!(state.vpn_panel.as_ref().unwrap().filter.is_empty(), "esc clears the search first");
+    state.vpn = Some(crate::backend::Vpn { provider: "Surfshark".into(), status: crate::backend::VpnStatus::Down });
+    assert_eq!(press(&mut state, " "), [Effect::VpnTunnel(true)]);
+    state.update(key(KeyCode::Esc));
+    assert!(state.vpn_panel.is_none() && !state.help);
 }

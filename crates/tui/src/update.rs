@@ -8,13 +8,18 @@ use torrential_core::{
     Arch, Error, Job, JobStatus, Machine, Preferences, ReleaseId, SearchQuery, SearchResult, TorrentId,
 };
 
+use crate::backend::VpnStatus;
 use crate::format::{first_fit, home_path};
 use crate::layout;
+use crate::state::VpnPanel;
 use crate::state::{
     DownloadFiles, Edit, Engine, Files, Focus, Input, Item, JobAction, RankedFor, Ranking, Search, SearchPhase, State,
     Tone, Upgrade,
 };
 use crate::tree::Tree;
+
+/// Two presses of Esc within this open the keys.
+const DOUBLE_ESC: std::time::Duration = std::time::Duration::from_millis(300);
 
 #[derive(Debug)]
 pub enum Msg {
@@ -33,6 +38,9 @@ pub enum Msg {
     Machine(Machine),
     Saved { edit: Edit, result: Result<Preferences, Error> },
     NewerVersion(String),
+    Vpn(Option<crate::backend::Vpn>),
+    VpnLocations(Result<Vec<crate::backend::VpnLocation>, Error>),
+    VpnDone(Result<String, Error>),
     Upgraded(Result<Option<String>, Error>),
 }
 
@@ -47,6 +55,9 @@ pub enum Effect {
     Copy(String),
     SavePreferences(Edit),
     Upgrade,
+    VpnLocations,
+    VpnSwitch(String),
+    VpnTunnel(bool),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -72,6 +83,7 @@ pub enum Action {
     Pick,
     PickAll,
     Ranking,
+    Vpn,
     Upgrade,
 }
 
@@ -147,6 +159,37 @@ impl State {
                 Vec::new()
             }
             Msg::Saved { edit, result } => self.saved(edit, result),
+            Msg::Vpn(vpn) => {
+                self.vpn = vpn;
+                Vec::new()
+            }
+            Msg::VpnLocations(result) => {
+                match (result, self.vpn_panel.as_mut()) {
+                    (Ok(list), Some(panel)) => {
+                        panel.locations = Some(list);
+                        panel.row = panel.visible().iter().position(|l| l.current).unwrap_or(0);
+                    }
+                    (Err(error), Some(_)) => {
+                        self.vpn_panel = None;
+                        self.say(Tone::Error, format!("VPN: {}", error.message));
+                    }
+                    (_, None) => {}
+                }
+                Vec::new()
+            }
+            Msg::VpnDone(result) => {
+                if let Some(panel) = self.vpn_panel.as_mut() {
+                    panel.busy = false;
+                }
+                match result {
+                    Ok(text) => {
+                        self.say(Tone::Success, text);
+                        return if self.vpn_panel.is_some() { vec![Effect::VpnLocations] } else { Vec::new() };
+                    }
+                    Err(error) => self.say(Tone::Error, format!("VPN: {}", error.message)),
+                }
+                Vec::new()
+            }
             Msg::NewerVersion(latest) => {
                 self.upgrade.get_or_insert(Upgrade::Available(latest));
                 Vec::new()
@@ -240,8 +283,22 @@ impl State {
             self.quit = true;
             return Vec::new();
         }
+        // Panels and confirmations take Esc for themselves.
+        let open = self.vpn_panel.is_some() || self.ranking.is_some() || self.confirm.is_some();
+        if key.code == KeyCode::Esc && !open {
+            let double = self.last_esc.is_some_and(|at| self.now.saturating_duration_since(at) <= DOUBLE_ESC);
+            self.last_esc = (!double).then_some(self.now);
+            if double {
+                self.focus = Focus::List;
+                self.help = true;
+                return Vec::new();
+            }
+        }
         if let Some(id) = self.confirm {
             return self.confirm_key(id, key);
+        }
+        if self.vpn_panel.is_some() {
+            return self.vpn_key(key);
         }
         if let Some(ranking) = self.ranking {
             return self.ranking_key(ranking, key);
@@ -288,6 +345,7 @@ impl State {
             Char('D') => Action::Download,
             Char('s') => Action::Sort,
             Char('S') => Action::Ranking,
+            Char('V') => Action::Vpn,
             Char('U') => Action::Upgrade,
             Char(' ' | 'p') if download => Action::TogglePause,
             Char('v') if download => Action::Verify,
@@ -382,6 +440,12 @@ impl State {
                 self.help = false;
                 self.focus = Focus::List;
             }
+            Action::Vpn => {
+                self.vpn_panel = Some(VpnPanel::default());
+                self.help = false;
+                self.focus = Focus::List;
+                return vec![Effect::VpnLocations];
+            }
             Action::Upgrade => {
                 if let Some(Upgrade::Available(latest)) = self.upgrade.take() {
                     self.upgrade = Some(Upgrade::Installing(latest));
@@ -409,6 +473,57 @@ impl State {
                 self.say(Tone::Error, format!("Updating failed: {}", error.message));
             }
         }
+    }
+
+    /// Letters search the list, so the panel moves with the arrow keys only.
+    fn vpn_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+        use KeyCode::*;
+        let Some(mut panel) = self.vpn_panel.take() else { return Vec::new() };
+        let last = panel.visible().len().saturating_sub(1);
+        let mut effects = Vec::new();
+        let toggle = key.code == Char(' ') && panel.filter.is_empty();
+        match key.code {
+            Esc if !panel.filter.is_empty() => {
+                panel.filter.clear();
+                panel.row = 0;
+            }
+            Esc => return Vec::new(),
+            Up => panel.row = panel.row.saturating_sub(1),
+            Down => panel.row = (panel.row + 1).min(last),
+            PageUp => panel.row = panel.row.saturating_sub(10),
+            PageDown => panel.row = (panel.row + 10).min(last),
+            Home => panel.row = 0,
+            End => panel.row = last,
+            Backspace => {
+                panel.filter.pop();
+                panel.row = 0;
+            }
+            Enter if !panel.busy => {
+                if let Some(location) = panel.visible().get(panel.row) {
+                    let (name, city, country) =
+                        (location.name.clone(), location.city.clone(), location.country.clone());
+                    panel.busy = true;
+                    self.say(Tone::Info, format!("Switching to {city}, {country}…"));
+                    effects.push(Effect::VpnSwitch(name));
+                }
+            }
+            Char(' ') if toggle && !panel.busy => match self.vpn.as_ref().map(|v| &v.status) {
+                None => self.say(Tone::Info, "Pick a location and press enter to lock to it."),
+                Some(status) => {
+                    let up = *status == VpnStatus::Down;
+                    panel.busy = true;
+                    self.say(Tone::Info, if up { "Turning the VPN on…" } else { "Turning the VPN off…" });
+                    effects.push(Effect::VpnTunnel(up));
+                }
+            },
+            Char(c) if !toggle && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+                panel.filter.push(c);
+                panel.row = 0;
+            }
+            _ => {}
+        }
+        self.vpn_panel = Some(panel);
+        effects
     }
 
     fn ranking_key(&mut self, mut ranking: Ranking, key: KeyEvent) -> Vec<Effect> {

@@ -26,6 +26,9 @@ pub enum Exit {
     Restart,
 }
 
+/// The status bar's VPN state is at most this old.
+const VPN_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Runs the TUI until the user quits. Downloads keep running in the engine afterwards.
 pub fn run(backend: impl Backend) -> io::Result<Exit> {
     let mode = ColorMode::detect(|key| std::env::var(key).ok());
@@ -63,6 +66,12 @@ fn session<B: Backend>(terminal: &mut ratatui::DefaultTerminal, backend: Arc<B>,
         }
         if let Some(latest) = reader.newer_version() {
             let _ = sender.send(Msg::NewerVersion(latest));
+        }
+    });
+    let (reader, sender) = (backend.clone(), tx.clone());
+    thread::spawn(move || {
+        while sender.send(Msg::Vpn(reader.vpn())).is_ok() {
+            thread::sleep(VPN_EVERY);
         }
     });
     run_loop(terminal, &mut state, &rx, &tx, &backend, mode)?;
@@ -214,6 +223,26 @@ fn perform<B: Backend>(effect: Effect, backend: &Arc<B>, tx: &Sender<Msg>) {
                     JobAction::Remove => backend.remove(&hex),
                 };
                 let _ = tx.send(Msg::Changed { id, action, result });
+            });
+        }
+        Effect::VpnLocations => {
+            thread::spawn(move || {
+                let _ = tx.send(Msg::VpnLocations(backend.vpn_locations()));
+            });
+        }
+        Effect::VpnSwitch(location) => {
+            thread::spawn(move || {
+                let result = backend.vpn_switch(&location).map(|place| format!("VPN connected to {place}"));
+                let _ = tx.send(Msg::VpnDone(result));
+                let _ = tx.send(Msg::Vpn(backend.vpn()));
+            });
+        }
+        Effect::VpnTunnel(up) => {
+            thread::spawn(move || {
+                let result =
+                    backend.vpn_tunnel(up).map(|()| if up { "VPN on" } else { "VPN off, nothing sent" }.into());
+                let _ = tx.send(Msg::VpnDone(result));
+                let _ = tx.send(Msg::Vpn(backend.vpn()));
             });
         }
         Effect::FreeSpace => {

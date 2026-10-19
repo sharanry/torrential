@@ -9,10 +9,12 @@ use torrential_core::{
     Slice, SourceOutcome, TorrentFile,
 };
 
+use crate::backend::{VpnLocation, VpnStatus};
 use crate::format::{
     self, age, ellipsize, first_fit, home_path, middle, percent, rate, seeds, shortenings, size, width,
 };
 use crate::layout::{self, Block, Indent, MASTHEAD, SEARCH, Screen};
+use crate::state::VpnPanel;
 use crate::state::{
     Engine, Files, Focus, Item, ROWS, RankedFor, Ranking, Row, SearchPhase, Sort, State, Tone, Upgrade, label,
 };
@@ -196,7 +198,9 @@ pub fn render(buf: &mut Buffer, state: &State, mode: ColorMode) -> Option<Positi
     masthead(buf, state, &screen);
     let caret = search(buf, state, &screen);
     rule(buf, screen.at, SEARCH + 1, screen.list.y);
-    if state.help {
+    if let Some(panel) = &state.vpn_panel {
+        vpn_panel(buf, state, panel, &screen);
+    } else if state.help {
         help(buf, &screen);
     } else {
         list(buf, state, &screen);
@@ -961,7 +965,7 @@ fn empty(buf: &mut Buffer, state: &State, screen: &Screen, y: u16) {
     }
 }
 
-const HELP: [(&str, &[(&str, &str)]); 6] = [
+const HELP: [(&str, &[(&str, &str)]); 7] = [
     ("move", &[("j k", "up, down"), ("g G", "first, last"), ("pgup pgdn", "a page"), ("d r", "downloads, results")]),
     ("typing", &[("/", "search"), ("enter", "search again"), ("ctrl+u", "clear"), ("tab", "into the list")]),
     ("results", &[("enter", "files"), ("D", "download"), ("s", "sort"), ("h l", "close, open")]),
@@ -977,7 +981,11 @@ const HELP: [(&str, &[(&str, &str)]); 6] = [
             ("y", "copy path"),
         ],
     ),
-    ("always", &[("? f1", "keys"), ("esc", "back"), ("S", "ranking"), ("q", "quit"), ("ctrl+c", "quit")]),
+    (
+        "vpn",
+        &[("V", "locations"), ("type", "search"), ("enter", "switch there"), ("space", "on, off"), ("esc", "close")],
+    ),
+    ("always", &[("? f1 esc esc", "keys"), ("esc", "back"), ("S", "ranking"), ("q", "quit"), ("ctrl+c", "quit")]),
 ];
 
 const NOTES: [&str; 4] = [
@@ -986,6 +994,78 @@ const NOTES: [&str; 4] = [
     "Downloads stop at 100% and never seed.",
     "Removing a download keeps its files.",
 ];
+
+/// The status bar's VPN note, longest first.
+fn vpn_badge(provider: &str, status: &VpnStatus) -> (Vec<String>, Color) {
+    match status {
+        VpnStatus::Secured { country, code } => {
+            (vec![format!("● {provider} · {country}"), format!("● {provider} {code}"), format!("● VPN {code}")], ACTION)
+        }
+        VpnStatus::Down => {
+            (vec![format!("● {provider} down, nothing sent"), format!("● {provider} down"), "● VPN down".into()], ERROR)
+        }
+        VpnStatus::Rejected => (vec![format!("● {provider} key rejected"), "● VPN rejected".into()], ERROR),
+        VpnStatus::Unsecured => (vec![format!("● {provider} not secured"), "● VPN unsecured".into()], ERROR),
+    }
+}
+
+fn vpn_panel(buf: &mut Buffer, state: &State, panel: &VpnPanel, screen: &Screen) {
+    let at = screen.at;
+    let area = screen.list;
+    rule(buf, at, area.y, area.bottom());
+    let room = screen.right - at.content;
+    let mut y = area.y;
+    margin(buf, at, y, "vpn", fg(PENCIL));
+    let status = match &state.vpn {
+        None => "Surfshark · off · enter locks torrential to a location".to_string(),
+        Some(vpn) => {
+            let (texts, _) = vpn_badge(&vpn.provider, &vpn.status);
+            let busy = if panel.busy { format!(" · working{}", state.spinner()) } else { String::new() };
+            format!("{}{busy}", texts[0].trim_start_matches("● "))
+        }
+    };
+    put(buf, at.content, y, room, &status, fg(PENCIL));
+    y += 1;
+    if panel.filter.is_empty() {
+        put(buf, at.content, y, room, "type to search cities and countries", fg(PENCIL));
+    } else {
+        let used = put(buf, at.content, y, room, "search ", fg(PENCIL));
+        put(buf, at.content + used, y, room.saturating_sub(used), &format!("{}▏", panel.filter), fg(INK));
+    }
+    y += 2;
+    if panel.locations.is_none() {
+        put(buf, at.content, y, room, "Loading locations that allow torrents…", fg(PENCIL));
+        return;
+    }
+    let list = panel.visible();
+    if list.is_empty() {
+        put(buf, at.content, y, room, "No location that allows torrents matches.", fg(PENCIL));
+        return;
+    }
+    let rows = usize::from(area.bottom().saturating_sub(y));
+    let start = panel.row.saturating_sub(rows / 2).min(list.len().saturating_sub(rows));
+    for (i, location) in list.iter().enumerate().skip(start).take(rows) {
+        vpn_row(buf, screen, location, i == panel.row, y);
+        y += 1;
+    }
+}
+
+fn vpn_row(buf: &mut Buffer, screen: &Screen, location: &VpnLocation, selected: bool, y: u16) {
+    let at = screen.at;
+    if selected {
+        mark(buf, at, y);
+    }
+    let style = match (selected, location.current) {
+        (true, _) => bold(INK),
+        (false, true) => fg(ACTION),
+        (false, false) => fg(TEXT),
+    };
+    let note =
+        if location.current { format!("connected · {}%", location.load) } else { format!("{}%", location.load) };
+    let room = (screen.right - at.content).saturating_sub(width(&note) as u16 + 2);
+    put(buf, at.content, y, room, &format!("{:<8} {}, {}", location.name, location.city, location.country), style);
+    put_right(buf, screen.right, y, &note, fg(PENCIL));
+}
 
 fn help(buf: &mut Buffer, screen: &Screen) {
     let at = screen.at;
@@ -1039,6 +1119,9 @@ fn footer(buf: &mut Buffer, state: &State, screen: &Screen) {
     let pairs: Vec<(&str, &str)> = match (state.focus, state.cursor) {
         _ if state.confirm.is_some() => Vec::new(),
         _ if state.ranking.is_some() => vec![("enter", "save"), ("esc", "close"), (sideways, "choose")],
+        _ if state.vpn_panel.is_some() => {
+            vec![("type", "search"), ("enter", "switch"), ("space", "on/off"), ("esc", "close")]
+        }
         _ if state.help => vec![("esc", "close")],
         (Focus::Query, _) if state.items().is_empty() => vec![("enter", "search"), ("f1", "keys")],
         (Focus::Query, _) => vec![("enter", "search"), (down, "list"), ("f1", "keys")],
@@ -1078,8 +1161,17 @@ fn footer(buf: &mut Buffer, state: &State, screen: &Screen) {
         (None, Some(Upgrade::Installing(latest))) => Some((format!("Updating to {latest}{}", state.spinner()), PENCIL)),
         (None, Some(Upgrade::Installed) | None) => None,
     };
+    let mut x = screen.at.content;
+    if let Some(vpn) = &state.vpn {
+        let (texts, color) = vpn_badge(&vpn.provider, &vpn.status);
+        if let Some(text) = first_fit(texts, room.saturating_sub(first).into()) {
+            let used = put(buf, x, y, room.saturating_sub(first), &text, fg(color));
+            x += used + 3;
+            room = room.saturating_sub(used + 3);
+        }
+    }
     if let Some((text, color)) = note {
-        let used = put(buf, screen.at.content, y, room.saturating_sub(first), &text, fg(color));
+        let used = put(buf, x, y, room.saturating_sub(first), &text, fg(color));
         room = room.saturating_sub(used + 4);
     }
     if !pairs.is_empty() {

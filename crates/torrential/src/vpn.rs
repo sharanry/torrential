@@ -259,7 +259,7 @@ fn sockaddr_ip(addr: *const libc::sockaddr) -> Option<IpAddr> {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum State {
     /// Traffic from the tunnel's address reaches Surfshark, and leaves from `ip`.
-    Secured { interface: String, ip: String, country: String },
+    Secured { interface: String, ip: String, country: String, country_code: String },
     /// No interface holds the tunnel's address, so nothing can leave.
     Down,
     /// The tunnel is up but Surfshark does not answer through it. A revoked or expired key looks
@@ -288,7 +288,9 @@ pub async fn check(vpn: &Vpn) -> State {
         serde_json::from_slice::<Whoami>(&response.bytes().await.ok()?).ok()
     };
     match tokio::time::timeout(PROBE_WITHIN, answer).await {
-        Ok(Some(Whoami { ip, country, secured: true, .. })) => State::Secured { interface, ip, country },
+        Ok(Some(Whoami { ip, country, country_code, secured: true })) => {
+            State::Secured { interface, ip, country, country_code }
+        }
         Ok(Some(Whoami { ip, .. })) => State::Unsecured { interface, ip },
         _ => State::Silent { interface },
     }

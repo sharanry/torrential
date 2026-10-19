@@ -271,6 +271,30 @@ pub struct Toast {
     pub until: Instant,
 }
 
+/// The VPN panel, opened with V.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct VpnPanel {
+    /// `None` until the provider answers.
+    pub locations: Option<Vec<crate::backend::VpnLocation>>,
+    pub row: usize,
+    /// A switch or toggle is running, perhaps behind the password prompt.
+    pub busy: bool,
+    /// Typed text that narrows the list to matching cities, countries, and location names.
+    pub filter: String,
+}
+
+impl VpnPanel {
+    /// The locations the filter keeps, in order. `row` indexes this list.
+    pub fn visible(&self) -> Vec<&crate::backend::VpnLocation> {
+        let words: Vec<String> = self.filter.split_whitespace().map(str::to_lowercase).collect();
+        let keeps = |l: &crate::backend::VpnLocation| {
+            let text = format!("{} {} {}", l.name, l.city, l.country).to_lowercase();
+            words.iter().all(|w| text.contains(w.as_str()))
+        };
+        self.locations.iter().flatten().filter(|l| keeps(l)).collect()
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Upgrade {
     Available(String),
@@ -334,6 +358,11 @@ pub struct State {
     pub machine: Option<Machine>,
     pub toast: Option<Toast>,
     pub upgrade: Option<Upgrade>,
+    /// `None` while the VPN lock is off.
+    pub vpn: Option<crate::backend::Vpn>,
+    pub vpn_panel: Option<VpnPanel>,
+    /// When Esc was last pressed, so a second press soon after opens the keys.
+    pub last_esc: Option<Instant>,
     pub quit: bool,
     pub next_search: u64,
 }
@@ -376,6 +405,9 @@ impl State {
             machine: None,
             toast: None,
             upgrade: None,
+            vpn: None,
+            vpn_panel: None,
+            last_esc: None,
             quit: false,
             next_search: 1,
         }

@@ -356,6 +356,26 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
               "takes_value": true,
               "repeatable": false,
               "value_name": "LOCATION"
+            },
+            {
+              "name": "--connect",
+              "help": "Also bring the tunnel up with wg-quick, taking the previous one down. Asks for your password through sudo",
+              "takes_value": false,
+              "repeatable": false
+            }
+          ]
+        },
+        {
+          "name": "locations",
+          "about": "List Surfshark locations that allow torrents",
+          "arguments": [],
+          "flags": [
+            {
+              "name": "--country",
+              "help": "Only this country, by name or code",
+              "takes_value": true,
+              "repeatable": false,
+              "value_name": "COUNTRY"
             }
           ]
         },

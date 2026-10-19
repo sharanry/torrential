@@ -3,6 +3,39 @@ use torrential_core::{Error, Machine, Preferences, SearchQuery, SearchResult};
 
 use crate::state::Edit;
 
+/// The VPN lock, as the status bar shows it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Vpn {
+    /// Such as Surfshark.
+    pub provider: String,
+    pub status: VpnStatus,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum VpnStatus {
+    /// Traffic leaves through the provider, in this country.
+    Secured { country: String, code: String },
+    /// The tunnel is down, so nothing is sent.
+    Down,
+    /// The tunnel is up but the provider does not answer through it, as with a revoked key.
+    Rejected,
+    /// Traffic from the tunnel leaves from an address that is not the provider's.
+    Unsecured,
+}
+
+/// A place the VPN can connect that allows torrents.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct VpnLocation {
+    /// What switching takes, such as `uk-gla`.
+    pub name: String,
+    pub city: String,
+    pub country: String,
+    /// Percent.
+    pub load: u32,
+    /// The lock points here now.
+    pub current: bool,
+}
+
 /// What the screen asks of the engine. Every method blocks; the TUI calls each one on its own
 /// thread, so an implementation can hold one connection per call.
 pub trait Backend: Send + Sync + 'static {
@@ -39,4 +72,27 @@ pub trait Backend: Send + Sync + 'static {
     /// Installs the latest torrential over this binary and returns its version, or `None` when
     /// this binary is already the latest.
     fn upgrade(&self) -> Result<Option<String>, Error>;
+    /// The VPN lock's state, or `None` when the lock is off. Asked every few seconds.
+    fn vpn(&self) -> Option<Vpn> {
+        None
+    }
+    /// The provider's locations that allow torrents.
+    fn vpn_locations(&self) -> Result<Vec<VpnLocation>, Error> {
+        Err(no_vpn())
+    }
+    /// Locks to `location` and brings its tunnel up, taking the previous one down. Returns the
+    /// city and country. May show the system's password prompt.
+    fn vpn_switch(&self, location: &str) -> Result<String, Error> {
+        let _ = location;
+        Err(no_vpn())
+    }
+    /// Brings the locked tunnel up, or takes it down. May show the system's password prompt.
+    fn vpn_tunnel(&self, up: bool) -> Result<(), Error> {
+        let _ = up;
+        Err(no_vpn())
+    }
+}
+
+fn no_vpn() -> Error {
+    Error::new(torrential_core::ErrorCode::Usage, "this build has no VPN support")
 }

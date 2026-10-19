@@ -63,6 +63,8 @@ pub enum Command {
     /// Send everything through a Surfshark WireGuard tunnel, or check that it holds
     #[command(
         after_help = "Examples:\n  torrential vpn surfshark\n  torrential vpn surfshark --location manchester\n  \
+                      torrential vpn surfshark --location de --connect\n  torrential vpn locations --country \
+                      us\n  \
                       torrential vpn surfshark ~/Downloads/uk-man.conf\n  torrential vpn\n  torrential vpn off\n\nThe \
                       first time, make a WireGuard key pair at https://my.surfshark.com/vpn/manual-setup/main and \
                       paste the private key when asked. It is kept in the Keychain."
@@ -166,6 +168,16 @@ pub enum VpnCommand {
         /// the least loaded P2P server in your country
         #[arg(long, conflicts_with = "config")]
         location: Option<String>,
+        /// Also bring the tunnel up with wg-quick, taking the previous one down. Asks for your
+        /// password through sudo
+        #[arg(long)]
+        connect: bool,
+    },
+    /// List Surfshark locations that allow torrents
+    Locations {
+        /// Only this country, by name or code
+        #[arg(long)]
+        country: Option<String>,
     },
     /// Ask Surfshark, through the tunnel, whether traffic is protected
     Status,

@@ -88,6 +88,28 @@ fn a_newer_version_shows_in_the_footer() {
 }
 
 #[test]
+fn the_vpn_shows_in_the_footer_and_its_panel() {
+    let secured = crate::backend::VpnStatus::Secured { country: "United Kingdom".into(), code: "GB".into() };
+    let vpn = crate::backend::Vpn { provider: "Surfshark".into(), status: secured };
+    let mut state = idle((100, 30));
+    state.update(Msg::Vpn(Some(vpn)));
+    assert!(shot(&state).contains("● Surfshark · United Kingdom"));
+    press(&mut state, "V");
+    state.update(Msg::VpnLocations(Ok(vec![crate::backend::VpnLocation {
+        name: "uk-gla".into(),
+        city: "Glasgow".into(),
+        country: "United Kingdom".into(),
+        load: 22,
+        current: true,
+    }])));
+    press(&mut state, "glas");
+    let screen = shot(&state);
+    assert!(screen.contains("search glas"), "{screen}");
+    assert!(screen.contains("uk-gla   Glasgow, United Kingdom"), "{screen}");
+    assert!(screen.contains("connected · 22%"), "{screen}");
+}
+
+#[test]
 fn streaming_screens() {
     snapshots("streaming", streaming);
 }
@@ -306,7 +328,7 @@ fn a_typing_user_sees_that_f1_opens_the_keys() {
     assert!(line(&render(&state), 29).ends_with("enter search   ↓ list   f1 keys"), "{}", line(&render(&state), 29));
     press(&mut state, "night");
     state.update(key(KeyCode::F(1)));
-    assert!(shot(&state).contains("     always │ ? f1 keys"), "{}", shot(&state));
+    assert!(shot(&state).contains("     always │ ? f1 esc esc keys"), "{}", shot(&state));
 }
 
 #[test]
