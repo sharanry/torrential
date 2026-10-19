@@ -71,7 +71,9 @@ pub fn run(command: Option<VpnCommand>, mode: Mode, env: &Env) -> Result<u8, Err
                         }
                     };
                     let (wireguard, text) = WireGuard::render(server, &key)?;
-                    let path = paths.config.join("surfshark").join(format!("{}.conf", server.connection_name));
+                    // wg-quick names the tunnel after the file, in at most 15 characters.
+                    let short = server.connection_name.split('.').next().unwrap_or("surfshark");
+                    let path = paths.config.join("surfshark").join(format!("{short}.conf"));
                     write_private(&path, &text).map_err(|e| writes.error(&path, e))?;
                     (wireguard, Some(path))
                 }
@@ -170,10 +172,15 @@ fn report(
     let next = match (state.error(vpn), written) {
         (Some(_), Some(path)) if *state == State::Down => {
             summary.push("the tunnel is not up yet, so nothing is sent".to_string());
-            Some(format!(
-                "in the WireGuard app, choose Import Tunnel(s) from File, pick {}, turn it on, then run torrential vpn",
-                path.display()
-            ))
+            Some(if on_path("wg-quick") {
+                format!("sudo wg-quick up {}, then run torrential vpn", path.display())
+            } else {
+                format!(
+                    "in the WireGuard app, choose Import Tunnel(s) from File, pick {}, turn it on, then run torrential \
+                     vpn",
+                    path.display()
+                )
+            })
         }
         (Some(error), _) => {
             summary.push(error.message);
@@ -247,6 +254,10 @@ impl Drop for Echo {
         // SAFETY: restores the settings read in `off`.
         unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.0) };
     }
+}
+
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
 }
 
 /// The config holds the private key, so only this user can read it.
